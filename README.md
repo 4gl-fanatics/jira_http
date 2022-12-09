@@ -6,7 +6,7 @@ This repo contains the source and slides presented at the 2022 PUG Challenge in 
 The `get_release_notes.p` program queries Consultingwerk's Jira instance, and builds a ProDataSet containing release note data for the tickets for a release. The ProDatASet contains 2 temp-tables: ttRelnote and ttAttachment. The former contains the release note texts, and the latter zero or more attachements for the ticket. Jira tickets are filtered by type (only Bug and Improvement are kept), and by project (SCL) and release.
 
 
-Example JSON writted from 
+Example JSON output
 ```json
 {
     "dsRelnote": {
