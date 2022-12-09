@@ -23,6 +23,8 @@ USING OpenEdge.Net.HTTP.Lib.*.
 USING Progress.Json.ObjectModel.*.
 
 /* ***************************  Main Block  *************************** */
+{common_functions.i}
+
 DEFINE TEMP-TABLE ttRelNote NO-UNDO
        SERIALIZE-NAME "releaseNotes"
     FIELD JiraId AS CHARACTER
@@ -49,8 +51,6 @@ DEFINE DATASET dsRelnote FOR ttRelNote, ttAttachment
 
 DEFINE VARIABLE hc AS IHttpClient NO-UNDO.
 DEFINE VARIABLE creds AS Credentials NO-UNDO.
-DEFINE VARIABLE req AS IHttpRequest NO-UNDO.
-DEFINE VARIABLE resp AS IHttpResponse NO-UNDO.
 DEFINE VARIABLE body AS JsonObject NO-UNDO.
 DEFINE VARIABLE restUrl AS URI NO-UNDO.
 DEFINE VARIABLE versionId AS CHARACTER NO-UNDO.
@@ -62,8 +62,8 @@ LOG-MANAGER:LOGGING-LEVEL = 5.
 LOG-MANAGER:CLEAR-LOG().
 
 // Global-to-procedure value
-RUN build_client.
-RUN get_credentials.
+RUN build_client (OUTPUT hc).
+RUN get_credentials (OUTPUT creds).
 
 /* From our config file ...
   "JiraRestApiUrl":"https://consultingwerk.atlassian.net/rest/api/2",
@@ -79,7 +79,7 @@ RUN get_credentials.
 restUrl = URI:Parse("https://consultingwerk.atlassian.net/rest/api/2/project/SCL/version").
 restUrl:AddQuery ("orderBy":U,"-releaseDate":U).
 
-RUN run_request(restUrl, OUTPUT body).
+RUN get_request(hc, restUrl, creds, OUTPUT body).
 
 body:WriteFile('versions.json', YES).
 
@@ -91,7 +91,7 @@ restUrl = URI:Parse("https://consultingwerk.atlassian.net/rest/api/2/search").
 restUrl:AddQuery("jql", SUBSTITUTE("project=SCL AND fixVersion='&1' AND (issueType='Bug' OR issueType='Improvement')",
                                     versionId)).
 
-RUN run_request(restUrl, OUTPUT body).
+RUN get_request(hc, restUrl, creds, OUTPUT body).
 
 body:WriteFile('tickets.json', YES).
 
@@ -123,53 +123,6 @@ CATCH e AS Progress.Lang.Error :
         e:CallStack
         VIEW-AS ALERT-BOX.
 END CATCH.
-
-PROCEDURE build_client:
-    DEFINE VARIABLE lib AS IHttpClientLibrary NO-UNDO.
-
-    // -nohostverify needed
-    lib = ClientLibraryBuilder:Build():sslVerifyHost(NO):Library.
-    hc = ClientBuilder:Build()
-            :AllowTracing(true)
-            :UsingLibrary(lib)
-            :Client.
-
-    // We get a 303/See Other when asking for the attachments
-    OpenEdge.Net.HTTP.Filter.Writer.StatusCodeWriterBuilder:Registry:Put(
-                        STRING(INTEGER(OpenEdge.Net.HTTP.StatusCodeEnum:SeeOther)),
-                        GET-CLASS(OpenEdge.Net.HTTP.Filter.Status.RedirectStatusFilter)).
-END PROCEDURE.
-
-PROCEDURE run_request:
-    DEFINE INPUT  PARAMETER pURI AS URI NO-UNDO.
-    DEFINE OUTPUT PARAMETER pData AS JsonObject NO-UNDO.
-
-    DEFINE VARIABLE req AS IHttpRequest NO-UNDO.
-    DEFINE VARIABLE resp AS IHttpResponse NO-UNDO.
-
-    pURI:AddQuery ("startAt":U,"0":U).
-    pURI:AddQuery ("maxResults":U,"1000":U).
-
-    req = RequestBuilder:Get (pURI)
-                        :AcceptJson()
-                        :UsingBasicAuthentication (creds)
-                        :Request.
-
-    resp = hc:Execute(req).
-
-    IF TYPE-OF(resp:Entity, JsonObject) THEN
-        pData = CAST(resp:Entity, JsonObject).
-END PROCEDURE.
-
-PROCEDURE get_credentials:
-    DEFINE VARIABLE json AS JsonObject NO-UNDO.
-
-    json = CAST(NEW ObjectModelParser():ParseFile("jira-credentials.json"), JsonObject).
-
-    creds = NEW Credentials().
-    creds:Username = json:GetCharacter('user').
-    creds:Password = json:GetCharacter('pw').
-END PROCEDURE.
 
 PROCEDURE get_latest_release:
     DEFINE INPUT  PARAMETER pData AS JsonArray NO-UNDO.
@@ -253,7 +206,7 @@ PROCEDURE get_attachments:
     restUrl:AddQuery('jql':U, SUBSTITUTE ("Issuekey=&1":U, pJiraId)).
     restUrl:AddQuery("fields":U, "attachment":U).
 
-    RUN run_request(restUrl, OUTPUT attachmentJson).
+    RUN get_request(hc, restUrl, creds, OUTPUT attachmentJson).
 
     attachmentJson:WriteFile("attachments-" + pJiraId + ".json", YES).
 
