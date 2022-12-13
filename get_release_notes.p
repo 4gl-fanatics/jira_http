@@ -1,4 +1,9 @@
+/** This is free and unencumbered software released into the public domain.
 
+    Anyone is free to copy, modify, publish, use, compile, sell, or
+    distribute this software, either in source code form or as a compiled
+    binary, for any purpose, commercial or non-commercial, and by any
+    means.  **/
 /*------------------------------------------------------------------------
     File        : get_release_notes.p
     Purpose     :
@@ -7,7 +12,7 @@
 
     Description :
 
-    Author(s)   : Peter
+    Author(s)   : Peter Judge / Consultingwerk Ltd
     Created     : Mon Aug 29 06:30:55 EDT 2022
     Notes       :
   ----------------------------------------------------------------------*/
@@ -25,8 +30,7 @@ USING Progress.Json.ObjectModel.*.
 /* ***************************  Main Block  *************************** */
 {common_functions.i}
 
-DEFINE TEMP-TABLE ttRelNote NO-UNDO
-       SERIALIZE-NAME "releaseNotes"
+DEFINE TEMP-TABLE ttRelNote NO-UNDO     SERIALIZE-NAME "releaseNotes"
     FIELD JiraId AS CHARACTER
     FIELD IssueType AS CHARACTER
     FIELD IssueDescription AS CLOB
@@ -35,8 +39,7 @@ DEFINE TEMP-TABLE ttRelNote NO-UNDO
     INDEX id1 AS PRIMARY UNIQUE JiraId
     .
 
-DEFINE TEMP-TABLE ttAttachment NO-UNDO
-       SERIALIZE-NAME "attachments"
+DEFINE TEMP-TABLE ttAttachment NO-UNDO  SERIALIZE-NAME "attachments"
     FIELD JiraId AS CHARACTER
     FIELD Attachment AS blob
     FIELD ContentType AS CHARACTER
@@ -51,7 +54,7 @@ DEFINE DATASET dsRelnote FOR ttRelNote, ttAttachment
 
 DEFINE VARIABLE hc AS IHttpClient NO-UNDO.
 DEFINE VARIABLE creds AS Credentials NO-UNDO.
-DEFINE VARIABLE body AS JsonObject NO-UNDO.
+DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
 DEFINE VARIABLE restUrl AS URI NO-UNDO.
 DEFINE VARIABLE versionId AS CHARACTER NO-UNDO.
 
@@ -61,8 +64,11 @@ LOG-MANAGER:LOGFILE-NAME = 'jira.log'.
 LOG-MANAGER:LOGGING-LEVEL = 5.
 LOG-MANAGER:CLEAR-LOG().
 
+&SCOPED-DEFINE API-VERSION 2
+&SCOPED-DEFINE BASE-URL https://consultingwerk.atlassian.net/rest/api/{&API-VERSION}
+
 // Global-to-procedure value
-RUN build_client (OUTPUT hc).
+RUN build_client (FALSE, OUTPUT hc).
 RUN get_credentials (OUTPUT creds).
 
 /* From our config file ...
@@ -75,35 +81,34 @@ RUN get_credentials (OUTPUT creds).
   "JiraIssuesInVersionQuery":"project=&1 AND fixVersion='&2'",
 */
 
-// Get the fixed versions
-restUrl = URI:Parse("https://consultingwerk.atlassian.net/rest/api/2/project/SCL/version").
+// 1. Get the fixed versions for the SCL project
+restUrl = URI:Parse("{&BASE-URL}/project/SCL/version").
 restUrl:AddQuery ("orderBy":U,"-releaseDate":U).
 
 RUN get_request(hc, restUrl, creds, OUTPUT body).
 
 body:WriteFile('versions.json', YES).
 
+RUN get_latest_release(cast(body, JsonObject):GetJsonArray("values"), OUTPUT versionId).
 
-RUN get_latest_release(body:GetJsonArray("values"), OUTPUT versionId).
-
-// Get all tickets fixed in that version
-restUrl = URI:Parse("https://consultingwerk.atlassian.net/rest/api/2/search").
+// 2. Get all tickets fixed in that version
+restUrl = URI:Parse("{&BASE-URL}/search").
 restUrl:AddQuery("jql", SUBSTITUTE("project=SCL AND fixVersion='&1' AND (issueType='Bug' OR issueType='Improvement')",
                                     versionId)).
 
 RUN get_request(hc, restUrl, creds, OUTPUT body).
 
-body:WriteFile('tickets.json', YES).
+//body:WriteFile('tickets.json', YES).
 
-// Get all the release notes from those tickets
-RUN get_release_notes(body:GetJsonArray("issues")).
+// 3. Get all the release notes from those tickets
+RUN get_release_notes(cast(body, JsonObject):GetJsonArray("issues")).
 
 FOR EACH ttRelNote:
+    // 4. Download attachments for the release notes
     RUN get_attachments (INPUT ttRelNote.JiraId).
 END.
 
 DATASET dsRelnote:WRITE-JSON ("FILE", "relnotes.json", YES).
-
 
 // Do something with the release note data
 CURRENT-WINDOW:WIDTH-CHARS = 128.
@@ -188,6 +193,7 @@ PROCEDURE get_attachments:
 
     DEFINE VARIABLE restUrl AS URI NO-UNDO.
     DEFINE VARIABLE attachmentJson AS JsonObject NO-UNDO.
+    DEFINE VARIABLE respBody AS JsonConstruct NO-UNDO.
     DEFINE VARIABLE issueJson AS JsonArray NO-UNDO.
     DEFINE VARIABLE attachJson AS JsonArray NO-UNDO.
     DEFINE VARIABLE fieldJson AS JsonObject NO-UNDO.
@@ -200,15 +206,20 @@ PROCEDURE get_attachments:
     DEFINE VARIABLE resp AS IHttpResponse NO-UNDO.
 
     // to get attachment info
-    restUrl = URI:Parse("https://consultingwerk.atlassian.net/rest/api/2/search").
+    restUrl = URI:Parse("{&BASE-URL}/search").
 
     // get any attachments
     restUrl:AddQuery('jql':U, SUBSTITUTE ("Issuekey=&1":U, pJiraId)).
     restUrl:AddQuery("fields":U, "attachment":U).
 
-    RUN get_request(hc, restUrl, creds, OUTPUT attachmentJson).
+    RUN get_request(hc, restUrl, creds, OUTPUT respBody).
 
-    attachmentJson:WriteFile("attachments-" + pJiraId + ".json", YES).
+    respBody:WriteFile("attachments-" + pJiraId + ".json", YES).
+
+    IF TYPE-OF(respBody, JsonObject) THEN
+        attachmentJson = CAST(respBody, JsonObject).
+    ELSE
+        RETURN.
 
     // To get the actual attachment
     issueJson = attachmentJson:getJsonArray("issues").
@@ -232,6 +243,7 @@ PROCEDURE get_attachments:
                    .
             restUrl = URI:Parse(ttAttachment.AttachmentUrl).
 
+            // Download the individyual attachments
             req = RequestBuilder:Get(restUrl)
                         :UsingBasicAuthentication (creds)
                         :Request.

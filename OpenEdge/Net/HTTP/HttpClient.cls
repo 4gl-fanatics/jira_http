@@ -452,9 +452,10 @@ implements IHttpClient, ISupportInitialize, ISupportLogging, IAdaptable:
                 RequestTraceEnd(poRequest, poResponse).
             end finally.
         end.        // REQ-LOOP
-
-        WriteTraceData().
-        ClearTraceData().
+        finally:
+            WriteTraceData().
+            ClearTraceData().
+        end finally.
     end method.
 
     /** Process the action resulting from the status evaluation
