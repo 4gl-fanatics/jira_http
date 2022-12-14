@@ -17,13 +17,13 @@
     Notes       :
   ----------------------------------------------------------------------*/
 PROCEDURE build_client:
-    DEFINE INPUT  PARAMETER pAllowTrace AS LOGICAL NO-UNDO.
-    DEFINE OUTPUT PARAMETER pClient AS OpenEdge.Net.HTTP.IHttpClient NO-UNDO.
+    DEFINE INPUT  PARAMETER pAllowTrace AS LOGICAL                       NO-UNDO.
+    DEFINE OUTPUT PARAMETER pClient     AS OpenEdge.Net.HTTP.IHttpClient NO-UNDO.
 
     DEFINE VARIABLE lib AS OpenEdge.Net.HTTP.IHttpClientLibrary NO-UNDO.
 
-    // -nohostverify needed
-    lib = OpenEdge.Net.HTTP.Lib.ClientLibraryBuilder:Build():sslVerifyHost(NO):Library.
+    // -nohostverify is needed
+    lib = OpenEdge.Net.HTTP.Lib.ClientLibraryBuilder:Build():sslVerifyHost(FALSE):Library.
 
     pClient = OpenEdge.Net.HTTP.ClientBuilder:Build()
                     :AllowTracing(pAllowTrace)
@@ -42,12 +42,12 @@ PROCEDURE build_client:
 END PROCEDURE.
 
 PROCEDURE get_request:
-    DEFINE INPUT  PARAMETER pClient AS OpenEdge.Net.HTTP.IHttpClient NO-UNDO.
-    DEFINE INPUT  PARAMETER pURI AS OpenEdge.Net.URI NO-UNDO.
-    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials NO-UNDO.
-    DEFINE OUTPUT PARAMETER pData AS Progress.Json.ObjectModel.JsonConstruct NO-UNDO.
+    DEFINE INPUT  PARAMETER pClient      AS OpenEdge.Net.HTTP.IHttpClient           NO-UNDO.
+    DEFINE INPUT  PARAMETER pURI         AS OpenEdge.Net.URI                        NO-UNDO.
+    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials           NO-UNDO.
+    DEFINE OUTPUT PARAMETER pData        AS Progress.Json.ObjectModel.JsonConstruct NO-UNDO.
 
-    DEFINE VARIABLE req AS OpenEdge.Net.HTTP.IHttpRequest NO-UNDO.
+    DEFINE VARIABLE req  AS OpenEdge.Net.HTTP.IHttpRequest  NO-UNDO.
     DEFINE VARIABLE resp AS OpenEdge.Net.HTTP.IHttpResponse NO-UNDO.
 
     /* paging range*/
@@ -66,13 +66,13 @@ PROCEDURE get_request:
 END PROCEDURE.
 
 PROCEDURE put_update_request:
-    DEFINE INPUT  PARAMETER pClient AS OpenEdge.Net.HTTP.IHttpClient NO-UNDO.
-    DEFINE INPUT  PARAMETER pURI AS OpenEdge.Net.URI NO-UNDO.
-    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials NO-UNDO.
-    DEFINE INPUT  PARAMETER pBody AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
-    DEFINE OUTPUT PARAMETER pData AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
+    DEFINE INPUT  PARAMETER pClient      AS OpenEdge.Net.HTTP.IHttpClient        NO-UNDO.
+    DEFINE INPUT  PARAMETER pURI         AS OpenEdge.Net.URI                     NO-UNDO.
+    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials        NO-UNDO.
+    DEFINE INPUT  PARAMETER pBody        AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
+    DEFINE OUTPUT PARAMETER pData        AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
 
-    DEFINE VARIABLE req AS OpenEdge.Net.HTTP.IHttpRequest NO-UNDO.
+    DEFINE VARIABLE req  AS OpenEdge.Net.HTTP.IHttpRequest  NO-UNDO.
     DEFINE VARIABLE resp AS OpenEdge.Net.HTTP.IHttpResponse NO-UNDO.
 
     req = OpenEdge.Net.HTTP.RequestBuilder:Put(pURI, pBody)
@@ -87,13 +87,13 @@ PROCEDURE put_update_request:
 END PROCEDURE.
 
 PROCEDURE post_new_request:
-    DEFINE INPUT  PARAMETER pClient AS OpenEdge.Net.HTTP.IHttpClient NO-UNDO.
-    DEFINE INPUT  PARAMETER pURI AS OpenEdge.Net.URI NO-UNDO.
-    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials NO-UNDO.
-    DEFINE INPUT  PARAMETER pBody AS Progress.Lang.Object NO-UNDO.
-    DEFINE OUTPUT PARAMETER pData AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
+    DEFINE INPUT  PARAMETER pClient      AS OpenEdge.Net.HTTP.IHttpClient        NO-UNDO.
+    DEFINE INPUT  PARAMETER pURI         AS OpenEdge.Net.URI                     NO-UNDO.
+    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials        NO-UNDO.
+    DEFINE INPUT  PARAMETER pBody        AS Progress.Lang.Object                 NO-UNDO.
+    DEFINE OUTPUT PARAMETER pData        AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
 
-    DEFINE VARIABLE req AS OpenEdge.Net.HTTP.IHttpRequest NO-UNDO.
+    DEFINE VARIABLE req  AS OpenEdge.Net.HTTP.IHttpRequest  NO-UNDO.
     DEFINE VARIABLE resp AS OpenEdge.Net.HTTP.IHttpResponse NO-UNDO.
 
     req = OpenEdge.Net.HTTP.RequestBuilder:Post(pURI, pBody)
@@ -101,12 +101,14 @@ PROCEDURE post_new_request:
                         :UsingBasicAuthentication (pCredentials)
                         // https://confluence.atlassian.com/cloudkb/xsrf-check-failed-when-calling-cloud-apis-826874382.html
                         :AddHeader("X-Atlassian-Token", "no-check")
-                        /* Force the content-type to be JSON, by default */
-                        :ContentType("application/json")
                         :Request.
 
+    /* Used to add attachments */
     IF TYPE-OF (pBody, OpenEdge.Net.MultipartEntity) THEN
         req:ContentType = "multipart/form-data".
+    ELSE
+    /* Everything else */
+        req:ContentType = "application/json".
 
     resp = pClient:Execute(req).
 
@@ -128,13 +130,13 @@ PROCEDURE get_credentials:
 END PROCEDURE.
 
 PROCEDURE delete_request:
-    DEFINE INPUT  PARAMETER pClient AS OpenEdge.Net.HTTP.IHttpClient NO-UNDO.
-    DEFINE INPUT  PARAMETER pURI AS OpenEdge.Net.URI NO-UNDO.
-    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials NO-UNDO.
-    DEFINE INPUT  PARAMETER pBody AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
-    DEFINE OUTPUT PARAMETER pData AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
+    DEFINE INPUT  PARAMETER pClient      AS OpenEdge.Net.HTTP.IHttpClient        NO-UNDO.
+    DEFINE INPUT  PARAMETER pURI         AS OpenEdge.Net.URI                     NO-UNDO.
+    DEFINE INPUT  PARAMETER pCredentials AS OpenEdge.Net.HTTP.Credentials        NO-UNDO.
+    DEFINE INPUT  PARAMETER pBody        AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
+    DEFINE OUTPUT PARAMETER pData        AS Progress.Json.ObjectModel.JsonObject NO-UNDO.
 
-    DEFINE VARIABLE req AS OpenEdge.Net.HTTP.IHttpRequest NO-UNDO.
+    DEFINE VARIABLE req  AS OpenEdge.Net.HTTP.IHttpRequest  NO-UNDO.
     DEFINE VARIABLE resp AS OpenEdge.Net.HTTP.IHttpResponse NO-UNDO.
 
     req = OpenEdge.Net.HTTP.RequestBuilder:Delete(pURI, pBody)
