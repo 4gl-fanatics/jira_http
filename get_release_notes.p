@@ -54,9 +54,9 @@ DEFINE DATASET dsRelnote FOR ttRelNote, ttAttachment
 
 DEFINE VARIABLE hc AS IHttpClient NO-UNDO.
 DEFINE VARIABLE creds AS Credentials NO-UNDO.
-DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
 DEFINE VARIABLE restUrl AS URI NO-UNDO.
 DEFINE VARIABLE versionId AS CHARACTER NO-UNDO.
+DEFINE VARIABLE arrayData AS JsonArray NO-UNDO.
 
 SESSION:ERROR-STACK-TRACE = YES.
 SESSION:DEBUG-ALERT = NO.
@@ -64,8 +64,8 @@ LOG-MANAGER:LOGFILE-NAME = 'jira.log'.
 LOG-MANAGER:LOGGING-LEVEL = 5.
 LOG-MANAGER:CLEAR-LOG().
 
-&SCOPED-DEFINE API-VERSION 2
-&SCOPED-DEFINE BASE-URL https://consultingwerk.atlassian.net/rest/api/{&API-VERSION}
+&SCOPED-DEFINE API-VERSION latest
+&SCOPED-DEFINE BASE-URL https://consultingwerk.atlassian.net/rest/api
 
 // Global-to-procedure value
 RUN build_client (FALSE, OUTPUT hc).
@@ -81,27 +81,14 @@ RUN get_credentials (OUTPUT creds).
   "JiraIssuesInVersionQuery":"project=&1 AND fixVersion='&2'",
 */
 
-// 1. Get the fixed versions for the SCL project
-restUrl = URI:Parse("{&BASE-URL}/project/SCL/version").
-restUrl:AddQuery ("orderBy":U,"-releaseDate":U).
-
-RUN get_request(hc, restUrl, creds, OUTPUT body).
-
-body:WriteFile('versions.json', YES).
-
-RUN get_latest_release(cast(body, JsonObject):GetJsonArray("values"), OUTPUT versionId).
+// 1. Get the latest fixed version for the SCL project
+RUN get_release_id(?, OUTPUT versionId).
 
 // 2. Get all tickets fixed in that version
-restUrl = URI:Parse("{&BASE-URL}/search").
-restUrl:AddQuery("jql", SUBSTITUTE("project=SCL AND fixVersion='&1' AND (issueType='Bug' OR issueType='Improvement')",
-                                    versionId)).
-
-RUN get_request(hc, restUrl, creds, OUTPUT body).
-
-//body:WriteFile('tickets.json', YES).
+RUN get_fixed_issues (versionId, OUTPUT arrayData).
 
 // 3. Get all the release notes from those tickets
-RUN get_release_notes(cast(body, JsonObject):GetJsonArray("issues")).
+RUN get_release_notes(arrayData).
 
 FOR EACH ttRelNote:
     // 4. Download attachments for the release notes
@@ -111,15 +98,18 @@ END.
 DATASET dsRelnote:WRITE-JSON ("FILE", "relnotes.json", YES).
 
 // Do something with the release note data
-CURRENT-WINDOW:WIDTH-CHARS = 128.
+CURRENT-WINDOW:WIDTH-CHARS = 156.
 FOR EACH ttRelNote:
-   DISPLAY
-    ttRelNote.JiraId
-    ttRelNote.IssueType FORMAT "x(11)"
-    ttRelNote.NoteTitle FORMAT "x(90)"
-    WITH
-        WIDTH 128
-    .
+
+    FIND ttAttachment WHERE ttAttachment.JiraId EQ ttRelNote.JiraId NO-ERROR.
+
+    DISPLAY
+        ttRelNote.JiraId
+        ttRelNote.IssueType FORMAT "x(11)"
+        ttRelNote.NoteTitle FORMAT "x(90)"
+        AVAILABLE ttAttachment LABEL "Has attachment?"
+        WITH
+            WIDTH 156.
 END.
 
 CATCH e AS Progress.Lang.Error :
@@ -129,21 +119,65 @@ CATCH e AS Progress.Lang.Error :
         VIEW-AS ALERT-BOX.
 END CATCH.
 
-PROCEDURE get_latest_release:
-    DEFINE INPUT  PARAMETER pData AS JsonArray NO-UNDO.
+PROCEDURE get_fixed_issues:
+    DEFINE INPUT  PARAMETER pVersionId AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER pIssues AS JsonArray NO-UNDO.
+
+    DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
+
+    restUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/search").
+    restUrl:AddQuery("jql", SUBSTITUTE("project=SCL AND fixVersion='&1' AND (issueType='Bug' OR issueType='Improvement')",
+                                       versionId)).
+
+    RUN get_request(hc, restUrl, creds, OUTPUT body).
+    //body:WriteFile('fixed-issues.json', YES).
+
+    IF TYPE-OF(body, JsonObject)
+    AND CAST(body, JsonObject):Has("issues")
+    AND CAST(body, JsonObject):GetType("issues") EQ JsonDataType:ARRAY
+    THEN
+        pIssues = CAST(body, JsonObject):GetJsonArray("issues").
+
+END PROCEDURE.
+
+ PROCEDURE get_release_id:
+    DEFINE INPUT  PARAMETER pDate      AS DATE      NO-UNDO.
     DEFINE OUTPUT PARAMETER pVersionId AS CHARACTER NO-UNDO.
 
     DEFINE VARIABLE loop AS INTEGER NO-UNDO.
     DEFINE VARIABLE verJson AS JsonObject NO-UNDO.
     DEFINE VARIABLE verDate AS DATE EXTENT 2 NO-UNDO.
+    DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
+    DEFINE VARIABLE restUrl AS URI NO-UNDO.
+    DEFINE VARIABLE versions AS JsonArray NO-UNDO.
 
-    DO loop = 1 TO pData:LENGTH:
-        IF NOT pData:GetType(loop) EQ  JsonDataType:OBJECT THEN
+    restUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/project/SCL/version").
+    restUrl:AddQuery ("orderBy":U,"-releaseDate":U).
+
+    RUN get_request(hc, restUrl, creds, OUTPUT body).
+    //body:WriteFile('versions.json', YES).
+
+    IF TYPE-OF(body, JsonObject)
+    AND CAST(body, JsonObject):Has("values")
+    AND CAST(body, JsonObject):GetType("values") EQ JsonDataType:ARRAY
+    THEN
+        versions = CAST(body, JsonObject):GetJsonArray("values").
+    ELSE
+        RETURN.
+
+    DO loop = 1 TO versions:LENGTH:
+        IF NOT versions:GetType(loop) EQ JsonDataType:OBJECT THEN
             NEXT.
 
-        verJson = pData:GetJsonObject(loop).
+        verJson = versions:GetJsonObject(loop).
         IF NOT verJson:Has("releaseDate") THEN
             NEXT.
+
+        /* if the release date is after the input date, skip */
+        IF NOT pDate EQ ?
+        AND pDate LE verJson:GetDate("releaseDate")
+        THEN
+            NEXT .
 
         pVersionId = verJson:GetCharacter("name").
         RETURN.
@@ -206,15 +240,14 @@ PROCEDURE get_attachments:
     DEFINE VARIABLE resp AS IHttpResponse NO-UNDO.
 
     // to get attachment info
-    restUrl = URI:Parse("{&BASE-URL}/search").
+    restUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/search").
 
     // get any attachments
     restUrl:AddQuery('jql':U, SUBSTITUTE ("Issuekey=&1":U, pJiraId)).
     restUrl:AddQuery("fields":U, "attachment":U).
 
     RUN get_request(hc, restUrl, creds, OUTPUT respBody).
-
-    respBody:WriteFile("attachments-" + pJiraId + ".json", YES).
+    //respBody:WriteFile("attachments-" + pJiraId + ".json", YES).
 
     IF TYPE-OF(respBody, JsonObject) THEN
         attachmentJson = CAST(respBody, JsonObject).

@@ -42,132 +42,38 @@ LOG-MANAGER:LOGGING-LEVEL = 5.
 LOG-MANAGER:CLEAR-LOG().
 
 /* ***************************  Main Block  *************************** */
-&SCOPED-DEFINE API-VERSION 3
-&SCOPED-DEFINE BASE-URL https://consultingwerk.atlassian.net/rest/api/{&API-VERSION}
+&SCOPED-DEFINE API-VERSION latest
+&SCOPED-DEFINE BASE-URL https://consultingwerk.atlassian.net/rest/api
 
 {common_functions.i}
 
 DEFINE TEMP-TABLE ttAssignableUser NO-UNDO
-    FIELD DisplayName AS CHARACTER
-    FIELD AccountId AS CHARACTER
+    FIELD DisplayName  AS CHARACTER
+    FIELD AccountId    AS CHARACTER
     FIELD EmailAddress AS CHARACTER
     INDEX idx1 AS PRIMARY UNIQUE AccountId
-    INDEX idx2 DisplayName
+    INDEX idx2                   DisplayName
     .
 
-DEFINE VARIABLE hc AS IHttpClient NO-UNDO.
-DEFINE VARIABLE creds AS Credentials NO-UNDO.
-DEFINE VARIABLE issueId AS CHARACTER NO-UNDO.
-DEFINE VARIABLE issueKey AS CHARACTER NO-UNDO.
+DEFINE VARIABLE hc       AS IHttpClient NO-UNDO.
+DEFINE VARIABLE creds    AS Credentials NO-UNDO.
+DEFINE VARIABLE issueId  AS CHARACTER   NO-UNDO.
+DEFINE VARIABLE issueKey AS CHARACTER   NO-UNDO.
 
 // Global-to-procedure values
-RUN build_client (true, OUTPUT hc).
+RUN build_client (TRUE, OUTPUT hc).
 RUN get_credentials (OUTPUT creds).
 
-// https://developer.atlassian.com/server/jira/platform/updating-an-issue-via-the-jira-rest-apis-6848604/
-//restUrl = URI:Parse("https://consultingwerk.atlassian.net/rest/api/{&API-VERSION}/issue/DEMO-1/editmeta").
-//RUN get_request(hc, restUrl, creds, OUTPUT body).
-//body:writefile('meta.json', yes).
 
-//RUN add_attachment("DEMO-5", SEARCH("README.md")).
-
-/*
-RUN get_assignable_users ("DEMO-1").
-
-//FIND FIRST ttAssignableUser WHERE ttAssignableUser.DisplayName BEGINS "Lutz".
-//RUN assign_issue("DEMO-1", ttAssignableUser.AccountId).
-
-FIND FIRST ttAssignableUser WHERE ttAssignableUser.DisplayName BEGINS "Peter ".
-//RUN assign_issue("DEMO-1", ttAssignableUser.AccountId).
-//RUN remove_watcher("DEMO-1", ttAssignableUser.AccountId).
-
-/* what fields are required? */
-RUN get_create_metadata (OUTPUT body).
-body:writefile('create-meta.json', yes).
-
-RUN get_issue_id("DEMO-5", OUTPUT issueid).
-
-RUN create_issue("Task",
-                 "task summary",
-                 "description",
-                 ttAssignableUser.AccountId,
-                 ttAssignableUser.AccountId,
-                 OUTPUT issueKey).
-
-
-RUN create_subtask(issueKey,
-                   "Subtask summary",
-                   "subtask desc",
-                   ttAssignableUser.AccountId,
-                   ttAssignableUser.AccountId,
-                   OUTPUT issueKey).
-*/
-
-/*
-RUN update_status("DEMO-7", "Done").
-RUN add_comment("DEMO-7", '~{
-  "version": 1,
-  "type": "doc",
-  "content": [
-    ~{
-      "type": "paragraph",
-      "content": [
-        ~{"type": "text", "text": "asgfa"}
-      ]
-    },
-    ~{
-      "type": "codeBlock",
-      "attrs": ~{"language": "json"},
-      "content": [
-        ~{
-          "type": "text",
-          "text": "~{\"p\": [1,4,null, \"FF\"]}\n"
-        }
-      ]
-    },
-    ~{
-      "type": "paragraph",
-      "content": [
-        ~{
-          "type": "text",
-          "text": "this is a "
-        },
-        ~{
-          "type": "text",
-          "text": "for each ",
-          "marks": [
-            ~{"type": "code"}
-          ]
-        }
-      ]
-    }
-  ]
-}').
-
-*/
-/*
-RUN get_assignable_users ("DEMO-7").
-FIND FIRST ttAssignableUser WHERE ttAssignableUser.DisplayName BEGINS "Lutz".
-
-RUN add_watcher ("DEMO-7", ttAssignableUser.AccountId).
-RUN remove_watcher ("DEMO-7", ttAssignableUser.AccountId).
-
-RUN link_issues("DEMO-14", "Duplicate", "DEMO-12").
-*/
-
-//RUN add_web_link ("DEMO-4", "http://joltik/admin/index.php", "Pi-Hole").
-//RUN link_issues("DEMO-10", "Blocks", "DEMO-10").
-RUN link_github_issue("DEMO-10",  1).
-RUN add_web_link ("DEMO-10", "http://joltik/admin/index.php", "Pi-Hole").
-
+/* ***************************  Internal Procedures  *************************** */
 PROCEDURE get_issue_id:
     DEFINE INPUT  PARAMETER pIssueKey AS CHARACTER NO-UNDO.
-    DEFINE OUTPUT PARAMETER pIssueId AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER pIssueId  AS CHARACTER NO-UNDO.
 
     DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
 
     RUN get_request(hc,
-                    URI:Parse("{&BASE-URL}/issue/" + pIssueKey),
+                    URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueKey),
                     creds,
                     OUTPUT body).
 
@@ -178,53 +84,49 @@ PROCEDURE get_issue_id:
 END PROCEDURE.
 
 /* -- Add a new comment -- */
-PROCEDURE add_comment:
+PROCEDURE add_comment_addcomment:
     DEFINE INPUT  PARAMETER pIssueId AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pComment AS CHARACTER NO-UNDO.
 
     DEFINE VARIABLE commentBody AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
-
-    /* DOC says this is possible, but 403/Forbidden is returned, even if https://confluence.atlassian.com/cloudkb/xsrf-check-failed-when-calling-cloud-apis-826874382.html followed.
-       This is due to the fact that the ABL HTTP Client always sends a User-Agent header.
-    */
-    DEFINE VARIABLE restUrl AS URI NO-UNDO.
-    restUrl = URI:Parse("{&BASE-URL}/issue/" + pIssueId + "/comment").
-    restUrl:AddQuery("expand", "renderedBody").
+    DEFINE VARIABLE jo          AS JsonObject NO-UNDO.
+    DEFINE VARIABLE restUrl     AS URI        NO-UNDO.
 
     commentBody = NEW JsonObject().
     jo = CAST(NEW ObjectModelParser():Parse(pComment), JsonObject) NO-ERROR.
     IF VALID-OBJECT(jo) THEN
+    DO:
         commentBody:Add("body", jo).
+        /* ADF must be v3 */
+        restUrl = URI:Parse("{&BASE-URL}/3/issue/" + pIssueId + "/comment").
+    END.
     ELSE
+    DO:
         commentBody:Add("body", pComment).
+        restUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "/comment").
+    END.
+
+    restUrl:AddQuery("expand", "renderedBody").
 
     RUN post_new_request(hc, restUrl, creds, commentBody, OUTPUT commentBody).
 
-/* EDIT ISSUE
-    RUN build_comment(pComment, OUTPUT commentBody).
-    RUN put_update_request(hc,
-                           URI:Parse("{&BASE-URL}/issue/" + pIssueId + "?expand=renderedBody"),
-                           creds,
-                           commentBody,
-                           OUTPUT commentBody).
-*/
-
-    commentBody:writefile('add-comment.json', yes).
+    //commentBody:writefile('add-comment.json', yes).
 END PROCEDURE.
 
-PROCEDURE build_comment:
+PROCEDURE add_comment_editissue:
+    DEFINE INPUT  PARAMETER pIssueId AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pComment AS CHARACTER NO-UNDO.
-    DEFINE OUTPUT PARAMETER pData AS JsonObject NO-UNDO.
 
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo2 AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo3 AS JsonObject NO-UNDO.
-    DEFINE VARIABLE ja AS JsonArray NO-UNDO.
+    DEFINE VARIABLE commentBody AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo          AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo2         AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo3         AS JsonObject NO-UNDO.
+    DEFINE VARIABLE ja          AS JsonArray  NO-UNDO.
+    DEFINE VARIABLE restUrl     AS URI        NO-UNDO.
 
-    pData = NEW JsonObject().
+    commentBody = NEW JsonObject().
     jo = NEW JsonObject().
-    pData:Add("update", jo).
+    commentBody:Add("update", jo).
     ja = NEW JsonArray().
     jo:Add("comment", ja).
 
@@ -235,23 +137,42 @@ PROCEDURE build_comment:
     jo:Add("add", jo2).
 
     jo3 = cast(NEW ObjectModelParser():Parse(pComment), JsonObject) NO-ERROR.
-    IF valid-object(jo3) THEN
+    IF VALID-OBJECT(jo3) THEN
+    DO:
         jo2:Add("body", jo3).
+        /* ADF must be v3 */
+        restUrl = URI:Parse("{&BASE-URL}/3/issue/" + pIssueId).
+    END.
     ELSE
+    DO:
         jo2:Add("body", pComment).
+        restUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId).
+    END.
+
+    restUrl:AddQuery("expand", "renderedBody").
+
+    RUN put_update_request(hc,
+                           //URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "?expand=renderedBody"),
+                           restUrl,
+                           creds,
+                           commentBody,
+                           OUTPUT commentBody).
+
+    //commentBody:writefile('add-comment.json', yes).
 END PROCEDURE.
 
+
 PROCEDURE add_attachment:
-    DEFINE INPUT  PARAMETER pIssueId AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pIssueId        AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pAttachmentFile AS CHARACTER NO-UNDO.
 
     DEFINE VARIABLE attachmentBody AS MultipartEntity NO-UNDO.
-    DEFINE VARIABLE respBody AS JsonObject NO-UNDO.
-    DEFINE VARIABLE postUrl AS URI NO-UNDO.
-    DEFINE VARIABLE part AS MessagePart NO-UNDO.
-    DEFINE VARIABLE pos AS INTEGER NO-UNDO.
+    DEFINE VARIABLE respBody       AS JsonObject      NO-UNDO.
+    DEFINE VARIABLE postUrl        AS URI             NO-UNDO.
+    DEFINE VARIABLE part           AS MessagePart     NO-UNDO.
+    DEFINE VARIABLE pos            AS INTEGER         NO-UNDO.
 
-    postUrl = URI:Parse("{&BASE-URL}/issue/" + pIssueId + "/attachments").
+    postUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "/attachments").
 
     part = NEW MessagePart("application/octet-stream",
                            NEW FileInputStream(pAttachmentFile)).
@@ -276,8 +197,8 @@ PROCEDURE assign_issue:
     DEFINE INPUT  PARAMETER pIssueId AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pAssignee AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE putUrl AS URI NO-UNDO.
-    DEFINE VARIABLE body AS JsonObject NO-UNDO.
+    DEFINE VARIABLE putUrl AS URI        NO-UNDO.
+    DEFINE VARIABLE body   AS JsonObject NO-UNDO.
 
     body = NEW JsonObject().
 
@@ -287,7 +208,7 @@ PROCEDURE assign_issue:
     //body:Add("name", pAssignee).
     body:Add("accountId", pAssignee).
 
-    putUrl = URI:Parse("{&BASE-URL}/issue/" + pIssueId + "/assignee").
+    putUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "/assignee").
 
     RUN put_update_request(hc, putUrl,  creds, body, OUTPUT body).
 END PROCEDURE.
@@ -295,19 +216,19 @@ END PROCEDURE.
 PROCEDURE get_assignable_users:
     DEFINE INPUT  PARAMETER pIssueId AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE getUrl AS URI NO-UNDO.
-    DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
-    DEFINE VARIABLE users AS JsonArray NO-UNDO.
-    DEFINE VARIABLE loop AS INTEGER NO-UNDO.
-    DEFINE VARIABLE cnt AS INTEGER NO-UNDO.
-    DEFINE VARIABLE aUser AS JsonObject NO-UNDO.
-    DEFINE VARIABLE groups AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
-    DEFINE VARIABLE ja AS JsonArray NO-UNDO.
-    DEFINE VARIABLE loop2 AS INTEGER NO-UNDO.
-    DEFINE VARIABLE cnt2 AS INTEGER NO-UNDO.
+    DEFINE VARIABLE getUrl AS URI           NO-UNDO.
+    DEFINE VARIABLE body   AS JsonConstruct NO-UNDO.
+    DEFINE VARIABLE users  AS JsonArray     NO-UNDO.
+    DEFINE VARIABLE loop   AS INTEGER       NO-UNDO.
+    DEFINE VARIABLE cnt    AS INTEGER       NO-UNDO.
+    DEFINE VARIABLE aUser  AS JsonObject    NO-UNDO.
+    DEFINE VARIABLE groups AS JsonObject    NO-UNDO.
+    DEFINE VARIABLE jo     AS JsonObject    NO-UNDO.
+    DEFINE VARIABLE ja     AS JsonArray     NO-UNDO.
+    DEFINE VARIABLE loop2  AS INTEGER       NO-UNDO.
+    DEFINE VARIABLE cnt2   AS INTEGER       NO-UNDO.
 
-    getUrl = URI:Parse("{&BASE-URL}/user/assignable/search?issueKey=DEMO-1&query=").
+    getUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/user/assignable/search?issueKey=DEMO-1&query=").
 
     RUN get_request(hc, getUrl, creds, OUTPUT body).
 
@@ -343,45 +264,44 @@ PROCEDURE add_watcher:
     DEFINE INPUT  PARAMETER pIssueId AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pWatcher AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE data AS JsonObject NO-UNDO.
-    DEFINE VARIABLE strData AS String NO-UNDO.
+    DEFINE VARIABLE data    AS JsonObject NO-UNDO.
+    DEFINE VARIABLE strData AS String     NO-UNDO.
 
     strData = NEW String(StringConstant:DOUBLE_QUOTE + pWatcher + StringConstant:DOUBLE_QUOTE).
 
     RUN post_new_request(hc,
-                         URI:Parse("{&BASE-URL}/issue/" + pIssueId + "/watchers"),
+                         URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "/watchers"),
                          creds,
                          strData,
                          OUTPUT data).
 
-    data:Writefile("add-watcher.json", yes).
+    //data:Writefile("add-watcher.json", yes).
 END PROCEDURE.
 
 PROCEDURE remove_watcher:
     DEFINE INPUT  PARAMETER pIssueId AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pWatcher AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
-    DEFINE VARIABLE delUrl AS URI NO-UNDO.
+    DEFINE VARIABLE body   AS JsonConstruct NO-UNDO.
 
-    delUrl = URI:Parse("{&BASE-URL}/issue/" + pIssueId + "/watchers?username=" + pWatcher).
+    RUN delete_request(hc,
+                       URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "/watchers?username=" + pWatcher),
+                       creds, ?, OUTPUT body).
 
-    RUN delete_request(hc, delUrl, creds, ?, OUTPUT body).
-
-    body:writefile('remove-watcher.json', yes).
+    //body:writefile('remove-watcher.json', yes).
 END PROCEDURE.
 
 PROCEDURE create_subtask:
     DEFINE INPUT  PARAMETER pParentIssue AS CHARACTER NO-UNDO.
-    DEFINE INPUT  PARAMETER pSummary AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pSummary     AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pDescription AS CHARACTER NO-UNDO.
-    DEFINE INPUT  PARAMETER pReporter AS CHARACTER NO-UNDO.
-    DEFINE INPUT  PARAMETER pAssignee AS CHARACTER NO-UNDO.
-    DEFINE OUTPUT PARAMETER pIssueKey AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pReporter    AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pAssignee    AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER pIssueKey    AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE issueJson AS JsonObject NO-UNDO.
+    DEFINE VARIABLE issueJson   AS JsonObject NO-UNDO.
     DEFINE VARIABLE issueFields AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo          AS JsonObject NO-UNDO.
 
     issueJson = NEW JsonObject().
     issueFields = NEW JsonObject().
@@ -411,7 +331,7 @@ PROCEDURE create_subtask:
         jo:Add("accountId", pAssignee).
 
     RUN post_new_request(hc,
-                         URI:Parse("{&BASE-URL}/issue"),
+                         URI:Parse("{&BASE-URL}/{&API-VERSION}/issue"),
                          creds,
                          issueJson,
                          OUTPUT issueJson).
@@ -423,16 +343,16 @@ PROCEDURE create_subtask:
 END PROCEDURE.
 
 PROCEDURE create_issue:
-    DEFINE INPUT  PARAMETER pIssueType AS CHARACTER NO-UNDO.
-    DEFINE INPUT  PARAMETER pSummary AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pIssueType   AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pSummary     AS CHARACTER NO-UNDO.
     DEFINE INPUT  PARAMETER pDescription AS CHARACTER NO-UNDO.
-    DEFINE INPUT  PARAMETER pReporter AS CHARACTER NO-UNDO.
-    DEFINE INPUT  PARAMETER pAssignee AS CHARACTER NO-UNDO.
-    DEFINE OUTPUT PARAMETER pIssueKey AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pReporter    AS CHARACTER NO-UNDO.
+    DEFINE INPUT  PARAMETER pAssignee    AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER pIssueKey    AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE issueJson AS JsonObject NO-UNDO.
+    DEFINE VARIABLE issueJson   AS JsonObject NO-UNDO.
     DEFINE VARIABLE issueFields AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo          AS JsonObject NO-UNDO.
 
     issueJson = NEW JsonObject().
     issueFields = NEW JsonObject().
@@ -464,7 +384,7 @@ PROCEDURE create_issue:
         jo:Add("accountId", pAssignee).
 
     RUN post_new_request(hc,
-                         URI:Parse("{&BASE-URL}/issue"),
+                         URI:Parse("{&BASE-URL}/{&API-VERSION}/issue"),
                          creds,
                          issueJson,
                          OUTPUT issueJson).
@@ -482,7 +402,7 @@ PROCEDURE get_create_metadata:
 
     // https://developer.atlassian.com/server/jira/platform/updating-an-issue-via-the-jira-rest-apis-6848604/
     RUN get_request(hc,
-                    URI:Parse("{&BASE-URL}/issue/createmeta?projectKeys=DEMO&expand=projects.issuetypes.fields"),
+                    URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/createmeta?projectKeys=DEMO&expand=projects.issuetypes.fields"),
                     creds,
                     OUTPUT body).
 
@@ -494,20 +414,20 @@ END PROCEDURE.
 
 PROCEDURE update_status:
     DEFINE INPUT PARAMETER pIssueKey AS CHARACTER NO-UNDO.
-    DEFINE INPUT PARAMETER pStatus AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER pStatus   AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE issueJson AS JsonObject NO-UNDO.
-    DEFINE VARIABLE body AS JsonConstruct NO-UNDO.
-    DEFINE VARIABLE ja AS JsonArray NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo2 AS JsonObject NO-UNDO.
-    DEFINE VARIABLE loop AS INTEGER NO-UNDO.
-    DEFINE VARIABLE cnt AS INTEGER NO-UNDO.
-    DEFINE VARIABLE transitionId AS CHARACTER NO-UNDO.
+    DEFINE VARIABLE issueJson    AS JsonObject    NO-UNDO.
+    DEFINE VARIABLE body         AS JsonConstruct NO-UNDO.
+    DEFINE VARIABLE ja           AS JsonArray     NO-UNDO.
+    DEFINE VARIABLE jo           AS JsonObject    NO-UNDO.
+    DEFINE VARIABLE jo2          AS JsonObject    NO-UNDO.
+    DEFINE VARIABLE loop         AS INTEGER       NO-UNDO.
+    DEFINE VARIABLE cnt          AS INTEGER       NO-UNDO.
+    DEFINE VARIABLE transitionId AS CHARACTER     NO-UNDO.
 
     /* Get the valid states for this ticket */
     RUN get_request(hc,
-                    URI:Parse("{&BASE-URL}/issue/" + pIssueKey + "/transitions"),
+                    URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueKey + "/transitions"),
                     creds,
                     OUTPUT body).
 
@@ -536,7 +456,7 @@ PROCEDURE update_status:
         jo:Add("id", transitionId).
 
     RUN post_new_request(hc,
-                         URI:Parse("{&BASE-URL}/issue/" + pIssueKey + "/transitions"),
+                         URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueKey + "/transitions"),
                          creds,
                          issueJson,
                          OUTPUT issueJson).
@@ -544,12 +464,12 @@ PROCEDURE update_status:
 END PROCEDURE.
 
 PROCEDURE link_issues:
-    DEFINE INPUT PARAMETER pInwardIssueKey AS CHARACTER NO-UNDO.
-    DEFINE INPUT PARAMETER pLinkType AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER pInwardIssueKey  AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER pLinkType        AS CHARACTER NO-UNDO.
     DEFINE INPUT PARAMETER pOutwardIssueKey AS CHARACTER NO-UNDO.
 
     DEFINE VARIABLE data AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo   AS JsonObject NO-UNDO.
 
     data = NEW JsonObject().
     jo = NEW JsonObject().
@@ -565,7 +485,7 @@ PROCEDURE link_issues:
         jo:Add("key", pOutwardIssueKey).
 
     RUN post_new_request(hc,
-                         URI:Parse("{&BASE-URL}/issueLink"),
+                         URI:Parse("{&BASE-URL}/{&API-VERSION}/issueLink"),
                          creds,
                          data,
                          OUTPUT data).
@@ -573,12 +493,12 @@ PROCEDURE link_issues:
 END PROCEDURE.
 
 PROCEDURE link_github_issue:
-    DEFINE INPUT PARAMETER pIssueKey AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER pIssueKey          AS CHARACTER NO-UNDO.
     DEFINE INPUT PARAMETER pGithubIssueNumber AS INTEGER NO-UNDO.
 
     DEFINE VARIABLE data AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo2 AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo   AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo2  AS JsonObject NO-UNDO.
 
     data = NEW JsonObject().
     data:Add("globalId", "issue:github.com/4gl-fanatics/jira_http/issues:" + string(pGithubIssueNumber)).
@@ -598,7 +518,7 @@ PROCEDURE link_github_issue:
         jo:Add("type", "jira-http-issue").
 
     RUN post_new_request(hc,
-                         URI:Parse("{&BASE-URL}/issue/" + pIssueKey + "/remotelink"),
+                         URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueKey + "/remotelink"),
                          creds,
                          data,
                          OUTPUT data).
@@ -606,12 +526,12 @@ END PROCEDURE.
 
 PROCEDURE add_web_link:
     DEFINE INPUT PARAMETER pIssueKey AS CHARACTER NO-UNDO.
-    DEFINE INPUT PARAMETER pUrl AS CHARACTER NO-UNDO.
-    DEFINE INPUT PARAMETER pTitle AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER pUrl      AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER pTitle    AS CHARACTER NO-UNDO.
 
     DEFINE VARIABLE data AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo AS JsonObject NO-UNDO.
-    DEFINE VARIABLE jo2 AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo   AS JsonObject NO-UNDO.
+    DEFINE VARIABLE jo2  AS JsonObject NO-UNDO.
 
     data = NEW JsonObject().
     jo = NEW JsonObject().
@@ -620,7 +540,7 @@ PROCEDURE add_web_link:
     data:Add("object", jo).
 
     RUN post_new_request(hc,
-                         URI:Parse("{&BASE-URL}/issue/" + pIssueKey + "/remotelink"),
+                         URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueKey + "/remotelink"),
                          creds,
                          data,
                          OUTPUT data).
