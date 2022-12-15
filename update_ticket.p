@@ -65,6 +65,7 @@ RUN build_client (TRUE, OUTPUT hc).
 RUN get_credentials (OUTPUT creds).
 
 
+
 /* ***************************  Internal Procedures  *************************** */
 PROCEDURE get_issue_id:
     DEFINE INPUT  PARAMETER pIssueKey AS CHARACTER NO-UNDO.
@@ -152,7 +153,6 @@ PROCEDURE add_comment_editissue:
     restUrl:AddQuery("expand", "renderedBody").
 
     RUN put_update_request(hc,
-                           //URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "?expand=renderedBody"),
                            restUrl,
                            creds,
                            commentBody,
@@ -174,8 +174,12 @@ PROCEDURE add_attachment:
 
     postUrl = URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueId + "/attachments").
 
-    part = NEW MessagePart("application/octet-stream",
-                           NEW FileInputStream(pAttachmentFile)).
+    IF pAttachmentFile MATCHES "*\.pdf" then
+        part = NEW MessagePart("application/pdf",
+                               NEW FileInputStream(pAttachmentFile)).
+    else
+        part = NEW MessagePart("application/octet-stream",
+                               NEW FileInputStream(pAttachmentFile)).
 
     pos = R-INDEX(REPLACE(pAttachmentFile, StringConstant:BACKSLASH, '/'), '/').
     IF pos GT 0 then
@@ -267,6 +271,7 @@ PROCEDURE add_watcher:
     DEFINE VARIABLE data    AS JsonObject NO-UNDO.
     DEFINE VARIABLE strData AS String     NO-UNDO.
 
+    // "peter"
     strData = NEW String(StringConstant:DOUBLE_QUOTE + pWatcher + StringConstant:DOUBLE_QUOTE).
 
     RUN post_new_request(hc,
@@ -512,10 +517,6 @@ PROCEDURE link_github_issue:
         jo:Add("name", "GitHub Issues").
         jo:Add("type", "jira-http-issue").
     data:Add("application", jo).
-
-    jo = NEW JsonObject().
-        jo:Add("name", "GitHub Issues").
-        jo:Add("type", "jira-http-issue").
 
     RUN post_new_request(hc,
                          URI:Parse("{&BASE-URL}/{&API-VERSION}/issue/" + pIssueKey + "/remotelink"),

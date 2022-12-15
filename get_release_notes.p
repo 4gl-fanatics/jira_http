@@ -41,7 +41,7 @@ DEFINE TEMP-TABLE ttRelNote NO-UNDO     SERIALIZE-NAME "releaseNotes"
 
 DEFINE TEMP-TABLE ttAttachment NO-UNDO  SERIALIZE-NAME "attachments"
     FIELD JiraId AS CHARACTER
-    FIELD Attachment AS blob
+    FIELD Attachment AS BLOB
     FIELD ContentType AS CHARACTER
     FIELD Filename AS CHARACTER
     FIELD AttachmentUrl AS CHARACTER
@@ -247,7 +247,7 @@ PROCEDURE get_attachments:
     restUrl:AddQuery("fields":U, "attachment":U).
 
     RUN get_request(hc, restUrl, creds, OUTPUT respBody).
-    //respBody:WriteFile("attachments-" + pJiraId + ".json", YES).
+    //respBody:WriteFile("attachments-" + pJiraId + ".json", TRUE).
 
     IF TYPE-OF(respBody, JsonObject) THEN
         attachmentJson = CAST(respBody, JsonObject).
