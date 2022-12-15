@@ -1,6 +1,11 @@
 # Accessing JIRA via the ABL HTTP client
 This repo contains sample code for interacting with Jira using the ABL HTTP Client, as presented in various presentations.
 
+## Useful links
+| ---- |  ---- |
+| REST API  | https://docs.atlassian.com/software/jira/docs/api/REST/7.6.1 |
+| Atlassian Document Format | https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/ | 
+
 ## Common functions
 The `common_functions.i` include contains a number of shared functions. It is included in the  `get_release_notes.p` and `update_ticket.p` programs. Each internal procedure has a varying parameters.
 
